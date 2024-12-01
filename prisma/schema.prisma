@@ -1,82 +1,165 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// This is your Prisma schema file for the LinkedIn clone redesign.
+// For more information, visit https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL") // Add this to your `.env` file
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model User {
-  id                 String    @id @default(cuid())
-  name               String
-  email              String    @unique
-  password           String
-  isEmailVerified    Boolean   @default(false)
-  emailVerifyToken   String?   @unique
-  emailVerifyExpires DateTime?
-
+  // Authentication Fields
+  id                   String    @id @default(cuid())
+  username             String    @unique
+  name                 String 
+  email                String    @unique
+  password             String? // Optional for OAuth users
+  isEmailVerified      Boolean   @default(false)
+  emailVerifyToken     String?   @unique
+  emailVerifyExpires   DateTime?
   passwordResetToken   String?   @unique
   passwordResetExpires DateTime?
+  refreshToken         String?
+  refreshTokenExpires  DateTime?
+  loginAttempts        Int       @default(0)
+  lastLoginAttempt     DateTime?
+  lastPasswordChangeAt DateTime?
 
-  refreshToken        String?
-  refreshTokenExpires DateTime?
+  authenticationLogs AuthenticationLog[]
 
-  loginAttempts    Int       @default(0)
-  lastLoginAttempt DateTime?
+  twoFactorEnabled Boolean         @default(false)
+  twoFactorSecret  String?
+  // OAuth Related
+  oauthProvider    OAuthProvider[] // "GOOGLE", "FACEBOOK", etc.
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // Profile Details
+  avatar            String?
+  avatarAr          String? // AR enhanced version
+  banner            String?
+  headline          String?
+  bio               String?           @db.Text
+  moodStatus        String?
+  pronouns          String?
+  location          String?
+  customTheme       Json? // Store theme preferences
+  profileVisibility ProfileVisibility @default(PUBLIC)
 
-  isOnline    Boolean?
-  avatar      String?
-  headline    String?
-  posts       Post[]
-  connections User[]    @relation("UserConnections")
-  connectedTo User[]    @relation("UserConnections")
-  Comment     Comment[]
-  Like        Like[]
-}
-
-model TokenBlacklist {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-}
-
-model Post {
-  id        String    @id @default(cuid())
-  content   String
-  image     String?
-  author    User      @relation(fields: [authorId], references: [id])
-  authorId  String
   createdAt DateTime  @default(now())
-  comments  Comment[]
-  likes     Like[]
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Administrative
+  isAdmin       Boolean       @default(false)
+  isModerator   Boolean       @default(false)
+  isVerified    Boolean       @default(false)
+  accountStatus AccountStatus @default(ACTIVE)
+
+  @@index([email, username])
 }
 
-model Comment {
-  id        String   @id @default(cuid())
-  content   String
-  author    User     @relation(fields: [authorId], references: [id])
-  authorId  String
-  post      Post     @relation(fields: [postId], references: [id])
-  postId    String
-  createdAt DateTime @default(now())
+model AuthenticationLog {
+  id                         String      @id @default(cuid())
+  user                       User        @relation(fields: [userId], references: [id])
+  userId                     String
+  loginTimestamp             DateTime    @default(now())
+  ipAddress                  String
+  deviceInfo                 Json
+  loginStatus                LoginStatus
+  location                   String?
+  geoCoordinates             GeoPoint?   @relation(fields: [geoPointId], references: [id]) // Geographical coordinates
+  geoPointId                 String?
+  countryCode                String? // Two-letter country code
+  region                     String? // State or province
+  isp                        String? // Internet Service Provider
+  timezone                   String? // Timezone of the login
+  userAgent                  String? // User agent string
+  browserName                String? // Browser name
+  browserVersion             String? // Browser version
+  operatingSystem            String? // OS name/version
+  screenResolution           String? // Screen resolution of device
+  deviceType                 String? // Desktop, mobile, etc.
+  deviceId                   String? // Unique identifier for device
+  networkType                String? // WiFi, mobile, etc.
+  vpnUsed                    Boolean? // VPN detection flag
+  loginMethod                String? // Method (e.g., OAuth, password, etc.)
+  twoFactorMethod            String? // 2FA method
+  mfaEnabled                 Boolean? // Whether MFA was enabled
+  authProtocol               String? // Auth protocol (e.g., OAuth2, SAML)
+  authToken                  String? // Token used in login
+  sessionId                  String? // Session tracking ID
+  loginDuration              Int? // Session duration in seconds
+  refreshTokenUsed           Boolean? // Was a refresh token used
+  loginIntent                String? // Purpose of login (e.g., recovery)
+  isSuccessful               Boolean // Success flag
+  failedAttemptsCount        Int? // Failed attempts before success
+  accountLocked              Boolean? // Was account locked
+  suspiciousActivityDetected Boolean? // Suspicious activity detected
+  captchaTriggered           Boolean? // CAPTCHA triggered
+  threatLevel                String? // Enum: LOW, MEDIUM, HIGH
+  riskScore                  Int? // Risk score of the login
+  failureReason              String? // Reason for failure
+  auditTrailId               String? // Link to audit trail
+  privacyAcknowledgement     Boolean? // Accepted privacy notice
+  previousLoginTimestamp     DateTime? // For comparison
+  connectedDevicesCount      Int? // Concurrently logged-in devices
 }
 
-model Like {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String
-  post      Post     @relation(fields: [postId], references: [id])
-  postId    String
-  createdAt DateTime @default(now())
+model GeoPoint {
+  id                String              @id @default(cuid())
+  latitude          Float
+  longitude         Float
+  AuthenticationLog AuthenticationLog[]
+}
+
+enum LoginStatus {
+  SUCCESS // Successful login
+  FAILED // Failed login attempt
+  SUSPICIOUS // Suspicious login attempt, flagged for review
+  LOCKED // Account locked due to multiple failed attempts
+  TEMPORARY_LOCK // Temporarily locked, may require captcha or additional verification
+  PASSWORD_EXPIRED // Password expired, requires change
+  MFA_REQUIRED // Multi-Factor Authentication required
+  ACCOUNT_INACTIVE // Account inactive or not verified
+  SESSION_EXPIRED // Session expired, re-authentication required
+  UNAUTHORIZED_DEVICE // Attempted login from unauthorized device
+  NETWORK_ISSUE // Login failed due to network issues
+  SERVICE_UNAVAILABLE // Service unavailable, try again later
+}
+
+model OAuthProvider {
+  id                String    @id @default(cuid())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String
+  provider          String
+  providerAccountId String
+  accessToken       String?
+  refreshToken      String?
+  expiresAt         DateTime?
+
+  @@unique([provider, providerAccountId])
+}
+
+enum ProfileVisibility {
+  PUBLIC // Visible to everyone
+  CONNECTIONS // Visible only to user's connections
+  FRIENDS // Visible only to user's friends
+  PRIVATE // Visible only to the user
+  FRIENDS_OF_FRIENDS // Extends visibility to friends of the user's friends 
+  FOLLOWERS // Visible only to followers PRIVATE
+}
+
+enum AccountStatus {
+  ACTIVE // The account is active and in good standing
+  PENDING_VERIFICATION // The account is created but not yet activated (e.g., awaiting email verification)
+  ACTIVE_LIMITED // The account has limited functionality, possibly due to incomplete profile
+  SUSPENDED // The account is temporarily restricted, possibly due to policy violations
+  DEACTIVATED // The account is voluntarily deactivated by the user, can be reactivated
+  BANNED // The account is permanently banned due to severe violations
+  CLOSED // The account has been closed permanently by user request
+  LOCKED // The account is locked due to multiple failed login attempts, requiring verification to unlock
+  ARCHIVED // The account is archived for historical purposes and not active
 }
